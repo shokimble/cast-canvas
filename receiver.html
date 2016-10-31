@@ -1,0 +1,218 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>WebRTC sample with Chromecast</title>
+<style>
+#display {
+  position:absolute;
+  top:30px;
+  left:50px;
+  bottom:30px;
+  right:50px;
+  color:#ff0000;
+  opacity:0.5;
+  white-space: normal;
+}
+
+video {
+  /*display: none;*/
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  background-color: #000;
+  background-size: cover;
+  background-position: center;
+  background-repeat: no-repeat;
+  object-fit: fill;
+}
+</style>
+<script type="text/javascript" src="//www.gstatic.com/cast/sdk/libs/receiver/2.0.0/cast_receiver.js"></script>
+<script src="google-cast-conf.js"></script>
+<script src="skyway-conf.js"></script>
+<script src="https://skyway.io/dist/0.3/peer.js"></script>
+<script>
+var castReceiverManager = null;
+var messageBus = null;
+
+function initializeCast() {
+
+  cast.receiver.logger.setLevelValue(cast.receiver.LoggerLevel.DEBUG);
+  castReceiverManager = cast.receiver.CastReceiverManager.getInstance();
+
+  castReceiverManager.onReady = function(evt) {
+    log('onReady / data: ' + JSON.stringify(evt.data));
+    window.castReceiverManager.setApplicationState('application status: onready');
+  }
+
+  castReceiverManager.onSenderConnected = function(evt) {
+    log('onSenderConnected / data: ' + JSON.stringify(evt.data) + ' / userAgent: ' + window.castReceiverManager.getSender(evt.data).userAgent);
+  }
+
+  castReceiverManager.onSenderDisconnected = function(evt) {
+    log('onSenderDisconnected / data: ' + JSON.stringify(evt.data));
+    if (window.castReceiverManager.getSenders().length == 0) {
+      log('close window.');
+      window.close();
+    }
+  }
+
+  castReceiverManager.onSystemVolumeChanged = function(evt) {
+    log('onSystemVolumeChanged / data: ' + JSON.stringify(evt.data));
+  }
+
+  messageBus = window.castReceiverManager.getCastMessageBus(googleCastConf.namespace);
+
+  messageBus.onMessage = function(evt) {
+    log('onMessage / from: ' + evt.senderId + ' / data: ' + JSON.stringify(evt.data));
+    receiveMessage(evt.senderId, evt.data);
+  }
+
+  log('receiver manager started.');
+  window.castReceiverManager.start({statusText: 'application status: starting'});
+
+}
+
+function receiveMessage(id, data) {
+}
+
+function sendMessage(id, data) {
+  messageBus.send(id, data);
+}
+
+//----------
+
+navigator.getUserMedia =
+    navigator.getUserMedia       ||
+    navigator.webkitGetUserMedia ||
+    navigator.mozGetUserMedia    ;
+
+window.URL =
+    window.URL      ||
+    window.webkitURL ;
+
+var peer = null;
+var selfid = null;
+var localStream = null;
+
+function initializePeer(callback) {
+  log('initializePeer');
+  peer = new Peer({key: skywayConf.apiKey});
+  peer.on('open', function(id) {
+    log('peer event:open');
+    selfid = id;
+    callback();
+  });
+  peer.on('call', function(mediaConnection) {
+    log('peer event:call');
+    mediaConnection.answer(localStream);
+    settingMediaConnection(mediaConnection);
+  });
+  peer.on('close', function() {
+    log('peer event:close');
+    peer.destroy();
+  });
+  peer.on('error', function(err) {
+    log('peer event:error');
+    log(err);
+  });
+}
+
+function initializeMedia(callback) {
+  log('initializeMedia');
+//  navigator.getUserMedia(
+////    {audio: true, video: true},
+//    {audio: false, video: false},
+//    function(stream) {
+//      log('getUserMedia event:success');
+//      localStream = stream;
+//      var video = document.getElementById('local');
+//      video.src = URL.createObjectURL(stream);
+//      video.play();
+//      callback();
+//    },
+//    function(error) {
+//      log('getUserMedia event:error');
+//      log(error);
+//    }
+//  );
+  callback();
+}
+
+function callRemoteAll() {
+  log('callRemoteAll');
+  peer.listAllPeers(function(remoteids) {
+    log('listAllPeers');
+    for (var i = 0; i < remoteids.length; i++) {
+      var remoteid = remoteids[i];
+      var mediaConnection =
+          peer.call(remoteid, localStream);
+      settingMediaConnection(mediaConnection);
+    }
+  });
+}
+
+function settingMediaConnection(mediaConnection) {
+  log('settingMediaConnection');
+  var remoteid = mediaConnection.peer;
+  var remoteStream = null;
+  var video = null;
+  mediaConnection.on('stream', function(stream) {
+    log('MediaConnection event:stream');
+    video = document.createElement('video');
+    video.src = URL.createObjectURL(stream);
+    video.play();
+    var parent = document.getElementById('remotes');
+    parent.appendChild(video);
+  });
+  mediaConnection.on('close', function() {
+    log('MediaConnection event:close');
+    //URL.revokeObjectURL(video.src);
+    //video.parentNode.removeChild(video);
+  });
+  mediaConnection.on('error', function() {
+    log('MediaConnection event:error');
+    log(err);
+  });
+}
+
+function initializeWebRTC() {
+  log('initializeWebRTC');
+  initializePeer(function() {
+    initializeMedia(function() {
+      log('complete initializeWebRTC');
+    });
+  });
+}
+
+//----------
+
+function log(message) {
+  var elem = document.createElement('div');
+  elem.textContent = message;
+  document.getElementById('display').appendChild(elem);
+}
+
+function clear() {
+  document.getElementById('display').textContent = '';
+}
+
+function initialize() {
+  initializeCast();
+  initializeWebRTC();
+
+  //fullscreen
+  var elem = document.getElementById("local");
+if (elem.requestFullscreen) {
+  elem.requestFullscreen();
+}
+}
+
+window.addEventListener('load', initialize);
+</script>
+</head>
+<body>
+<video id="local"></video>
+<div id="remotes"></div>
+<div id="display"></div>
+</body>
+<html>

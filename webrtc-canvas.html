@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html>
+<head>
+<title>WebRTC sample with Chromecast</title>
+<style>
+</style>
+<script type="text/javascript" src="//www.gstatic.com/cv/js/sender/v1/cast_sender.js"></script>
+<script src="google-cast-conf.js"></script>
+<script src="skyway-conf.js"></script>
+<script src="https://skyway.io/dist/0.3/peer.js"></script>
+
+  <meta charset="utf-8">
+  <meta name="description" content="WebRTC code samples">
+  <meta name="viewport" content="width=device-width, user-scalable=yes, initial-scale=1, maximum-scale=1">
+  <meta itemprop="description" content="Client-side WebRTC code samples">
+  <meta itemprop="image" content="../../../images/webrtc-icon-192x192.png">
+  <meta itemprop="name" content="WebRTC code samples">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta id="theme-color" name="theme-color" content="#ffffff">
+
+  <base target="_blank">
+
+  <title>Canvas to video</title>
+
+  <link rel="icon" sizes="192x192" href="../../../images/webrtc-icon-192x192.png">
+  <link href="//fonts.googleapis.com/css?family=Roboto:300,400,500,700" rel="stylesheet" type="text/css">
+  <link rel="stylesheet" href="../../../css/main.css" />
+  <link rel="stylesheet" href="css/main.css" />
+
+<script>
+var session = null;
+
+if (!chrome.cast || !chrome.cast.isAvailable) {
+  setTimeout(initializeCastApi, 1000);
+}
+
+function initializeCastApi() {
+  log('initializeCastApi');
+  var sessionRequest = new chrome.cast.SessionRequest(googleCastConf.applicationId);
+  var apiConfig = new chrome.cast.ApiConfig(
+    sessionRequest,
+    sessionListener,
+    receiverListener
+  );
+  chrome.cast.initialize(
+    apiConfig,
+    onInitSuccess,
+    onError
+  );
+}
+
+function onError(message) {
+  log('onError / message: ' + JSON.stringify(message));
+}
+
+function onInitSuccess() {
+  log('onInitSuccess');
+}
+
+//function onSuccess(message) {
+//  log('onSuccess / message: ' + message);
+//}
+
+function sessionListener(evt) {
+  log('sessionListener / session id: ' + evt.sessionId);
+  session = evt;
+  session.addUpdateListener(sessionUpdateListener);  
+  session.addMessageListener(googleCastConf.namespace, receiverMessage);
+}
+
+function sessionUpdateListener(isAlive) {
+  log('sessionUpdateListener / isAlive: ' + isAlive + ' / session id: ' + session.sessionId);
+  if (!isAlive) {
+    session = null;
+  }
+}
+
+function receiverMessage(namespace, message) {
+  log('receiverMessage / namespace: ' + namespace + ' / message:' + message);
+}
+function receiverListener(evt) {
+  log('receiverListener / receiver status: ' + (evt === 'available' ? 'found' : 'list empty'));
+}
+
+function connectCast() {
+  log('connect cast');
+  if (session !== null) {
+    log('session is not null.');
+    return;
+  }
+  log('session is null.');
+  chrome.cast.requestSession(
+    onConnectCast,
+    onError
+  );
+}
+
+function disconnectCast() {
+  log('disconnect cast');
+  if (session === null) {
+    log('session is null.');
+    return;
+  }
+  log('session is not null.');
+  session.stop(onStopAppSuccess, onError);
+}
+
+function onConnectCast(evt) {
+  log('onConnectCast / session id: ' + evt.sessionId);
+  session = evt;
+}
+
+function onStopAppSuccess() {
+  log('onStopAppSuccess');
+  session = null;
+}
+
+function sendMessage(message) {
+  log('sendMessage');
+  if (session === null) {
+    log('session is null.');
+    return;
+  }
+  log('session is not null.');
+  session.sendMessage(
+    googleCastConf.namespace,
+    message,
+    function() {log('send data:' + message);},
+    onError
+  );
+}
+
+//----------
+
+navigator.getUserMedia =
+    navigator.getUserMedia       ||
+    navigator.webkitGetUserMedia ||
+    navigator.mozGetUserMedia    ;
+
+window.URL =
+    window.URL      ||
+    window.webkitURL ;
+
+var peer = null;
+var selfid = null;
+var localStream = null;
+
+function initializePeer(callback) {
+  log('initializePeer');
+  peer = new Peer({key: skywayConf.apiKey});
+  peer.on('open', function(id) {
+    log('peer event:open');
+    selfid = id;
+    callback();
+  });
+  peer.on('call', function(mediaConnection) {
+    log('peer event:call');
+    mediaConnection.answer(localStream);
+    settingMediaConnection(mediaConnection);
+  });
+  peer.on('close', function() {
+    log('peer event:close');
+    peer.destroy();
+  });
+  peer.on('error', function(err) {
+    log('peer event:error');
+    log(err);
+  });
+}
+
+function initializeMedia(callback) {
+  //this is where the camera is initialised
+
+  localStream = canvas.captureStream(25);
+
+  callback();
+
+  /*
+  navigator.getUserMedia(
+    {audio: false, video: true},
+    function(stream) {
+      log('getUserMedia event:success');
+      localStream = stream;
+      var video = document.getElementById('local');
+      video.src = URL.createObjectURL(stream);
+      video.play();
+      callback();
+    },
+    function(error) {
+      log('getUserMedia event:error');
+      log(error);
+    }
+  );  
+  //callback();
+  */
+}
+
+function callRemoteAll() {
+  log('callRemoteAll');
+  peer.listAllPeers(function(remoteids) {
+    log('listAllPeers');
+    for (var i = 0; i < remoteids.length; i++) {
+      var remoteid = remoteids[i];
+      var mediaConnection =
+          peer.call(remoteid, localStream);
+      settingMediaConnection(mediaConnection);
+    }
+  });
+}
+
+function settingMediaConnection(mediaConnection) {
+  log('settingMediaConnection');
+  var remoteid = mediaConnection.peer;
+  var remoteStream = null;
+  var video = null;
+  mediaConnection.on('stream', function(stream) {
+    log('MediaConnection event:stream');
+    video = document.createElement('video');
+    video.src = URL.createObjectURL(stream);
+    video.play();
+    var parent = document.getElementById('remotes');
+    parent.appendChild(video);
+  });
+  mediaConnection.on('close', function() {
+    log('MediaConnection event:close');
+    URL.revokeObjectURL(video.src);
+    video.parentNode.removeChild(video);
+  });
+  mediaConnection.on('error', function() {
+    log('MediaConnection event:error');
+    log(err);
+  });
+}
+
+function initializeWebRTC() {
+  log('initializeWebRTC');
+  initializePeer(function() {
+    initializeMedia(function() {
+      log('complete initializeWebRTC');
+    });
+  });
+}
+
+//----------
+
+function log(message) {
+  console.log(message);
+}
+
+function initialize() {
+  document.getElementById('connect_cast').addEventListener('click', connectCast);
+  document.getElementById('disconnect_cast').addEventListener('click', disconnectCast);
+  document.getElementById('call').addEventListener('click', callRemoteAll);
+  initializeWebRTC();
+}
+
+window.addEventListener('load', initialize);
+</script>
+</head>
+
+
+<body>
+
+<canvas width="1280" height="720"></canvas>
+
+
+<input type="button" id="connect_cast" value="connect cast" />
+<input type="button" id="disconnect_cast" value="disconnect cast" />
+<br />
+<input type="button" id="call" value="call" />
+<br />
+<video id="local"></video>
+<div id="remotes" autoplay></div>
+
+
+
+
+  <script src="js/third_party/webgl-utils.js"></script>
+  <script src="js/third_party/webgl-debug.js"></script>
+  <script src="js/third_party/matrix4x4.js"></script>
+  <script src="js/third_party/cameracontroller.js"></script>
+  <script src="js/third_party/teapot-streams.js"></script>
+  <script src="js/third_party/demo.js"></script>
+
+  <script src="js/main.js"></script>
+
+  <script src="../../../js/lib/ga.js"></script>
+</body>
+
+
+<html>
